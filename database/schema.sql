@@ -1,0 +1,211 @@
+-- HPRRIMS schema (MySQL 8.0.16+). Idempotent: safe to run on every start.
+
+CREATE TABLE IF NOT EXISTS users (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username        VARCHAR(50)  NOT NULL,
+    password_hash   VARCHAR(100) NOT NULL,
+    full_name       VARCHAR(120) NOT NULL,
+    email           VARCHAR(120) NULL,
+    role            VARCHAR(20)  NOT NULL,
+    specialization  VARCHAR(100) NULL,
+    active          BOOLEAN      NOT NULL DEFAULT TRUE,
+    last_login_at   DATETIME(6)  NULL,
+    created_at      DATETIME(6)  NOT NULL,
+    updated_at      DATETIME(6)  NOT NULL,
+    CONSTRAINT uk_users_username UNIQUE (username),
+    CONSTRAINT uk_users_email UNIQUE (email),
+    CONSTRAINT ck_users_role CHECK (role IN ('ADMIN','DOCTOR','STAFF'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS patients (
+    id                        BIGINT AUTO_INCREMENT PRIMARY KEY,
+    patient_code              VARCHAR(20)  NOT NULL,
+    full_name                 VARCHAR(120) NOT NULL,
+    date_of_birth             DATE         NOT NULL,
+    gender                    VARCHAR(10)  NOT NULL,
+    contact_number            VARCHAR(20)  NOT NULL,
+    email                     VARCHAR(120) NULL,
+    address                   VARCHAR(255) NULL,
+    emergency_contact_name    VARCHAR(120) NULL,
+    emergency_contact_number  VARCHAR(20)  NULL,
+    created_by                BIGINT       NULL,
+    created_at                DATETIME(6)  NOT NULL,
+    updated_at                DATETIME(6)  NOT NULL,
+    CONSTRAINT uk_patients_code UNIQUE (patient_code),
+    CONSTRAINT ck_patients_gender CHECK (gender IN ('MALE','FEMALE','OTHER')),
+    CONSTRAINT fk_patients_created_by FOREIGN KEY (created_by) REFERENCES users (id),
+    INDEX idx_patients_name (full_name),
+    INDEX idx_patients_dob (date_of_birth),
+    INDEX idx_patients_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS admissions (
+    id                             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    patient_id                     BIGINT       NOT NULL,
+    doctor_id                      BIGINT       NOT NULL,
+    admitted_at                    DATETIME(6)  NOT NULL,
+    reason                         VARCHAR(500) NOT NULL,
+    ward                           VARCHAR(60)  NULL,
+    status                         VARCHAR(20)  NOT NULL,
+    is_readmission                 BOOLEAN      NOT NULL DEFAULT FALSE,
+    previous_admission_id          BIGINT       NULL,
+    days_since_previous_discharge  INT          NULL,
+    readmission_window_days        INT          NOT NULL,
+    discharged_at                  DATETIME(6)  NULL,
+    discharge_summary              TEXT         NULL,
+    follow_up_notes                TEXT         NULL,
+    discharge_recorded_at          DATETIME(6)  NULL,
+    discharged_by                  BIGINT       NULL,
+    prediction_status              VARCHAR(20)  NULL,
+    created_by                     BIGINT       NULL,
+    created_at                     DATETIME(6)  NOT NULL,
+    updated_at                     DATETIME(6)  NOT NULL,
+    version                        BIGINT       NOT NULL DEFAULT 0,
+    active_patient_guard           BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'ADMITTED' THEN patient_id ELSE NULL END) STORED,
+    CONSTRAINT uk_admissions_one_active UNIQUE (active_patient_guard),
+    CONSTRAINT ck_admissions_status CHECK (status IN ('ADMITTED','DISCHARGED')),
+    CONSTRAINT ck_admissions_discharge_order CHECK (discharged_at IS NULL OR discharged_at >= admitted_at),
+    CONSTRAINT ck_admissions_prediction_status CHECK (prediction_status IS NULL OR prediction_status IN ('AVAILABLE','UNAVAILABLE')),
+    CONSTRAINT fk_admissions_patient FOREIGN KEY (patient_id) REFERENCES patients (id),
+    CONSTRAINT fk_admissions_doctor FOREIGN KEY (doctor_id) REFERENCES users (id),
+    CONSTRAINT fk_admissions_previous FOREIGN KEY (previous_admission_id) REFERENCES admissions (id),
+    CONSTRAINT fk_admissions_discharged_by FOREIGN KEY (discharged_by) REFERENCES users (id),
+    CONSTRAINT fk_admissions_created_by FOREIGN KEY (created_by) REFERENCES users (id),
+    INDEX idx_admissions_patient_date (patient_id, admitted_at),
+    INDEX idx_admissions_status (status),
+    INDEX idx_admissions_admitted (admitted_at),
+    INDEX idx_admissions_discharged (discharged_at),
+    INDEX idx_admissions_doctor_status (doctor_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS medical_records (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    admission_id     BIGINT       NOT NULL,
+    doctor_id        BIGINT       NOT NULL,
+    diagnosis        VARCHAR(500) NULL,
+    prescription     TEXT         NULL,
+    treatment_notes  TEXT         NULL,
+    corrected        BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at       DATETIME(6)  NOT NULL,
+    updated_at       DATETIME(6)  NOT NULL,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    CONSTRAINT fk_records_admission FOREIGN KEY (admission_id) REFERENCES admissions (id),
+    CONSTRAINT fk_records_doctor FOREIGN KEY (doctor_id) REFERENCES users (id),
+    INDEX idx_records_admission_created (admission_id, created_at),
+    INDEX idx_records_doctor_created (doctor_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS medical_record_revisions (
+    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+    medical_record_id  BIGINT       NOT NULL,
+    diagnosis          VARCHAR(500) NULL,
+    prescription       TEXT         NULL,
+    treatment_notes    TEXT         NULL,
+    reason             VARCHAR(500) NOT NULL,
+    revised_by         BIGINT       NOT NULL,
+    revised_at         DATETIME(6)  NOT NULL,
+    CONSTRAINT fk_revisions_record FOREIGN KEY (medical_record_id) REFERENCES medical_records (id),
+    CONSTRAINT fk_revisions_user FOREIGN KEY (revised_by) REFERENCES users (id),
+    INDEX idx_revisions_record (medical_record_id, revised_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS readmission_predictions (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    admission_id    BIGINT       NOT NULL,
+    probability     DOUBLE       NOT NULL,
+    risk_level      VARCHAR(10)  NOT NULL,
+    model_version   VARCHAR(50)  NOT NULL,
+    top_factors     TEXT         NULL,
+    input_features  TEXT         NULL,
+    trigger_source  VARCHAR(20)  NOT NULL,
+    requested_by    BIGINT       NULL,
+    created_at      DATETIME(6)  NOT NULL,
+    CONSTRAINT ck_predictions_risk CHECK (risk_level IN ('LOW','MEDIUM','HIGH')),
+    CONSTRAINT ck_predictions_probability CHECK (probability >= 0 AND probability <= 1),
+    CONSTRAINT fk_predictions_admission FOREIGN KEY (admission_id) REFERENCES admissions (id),
+    CONSTRAINT fk_predictions_user FOREIGN KEY (requested_by) REFERENCES users (id),
+    INDEX idx_predictions_admission (admission_id, created_at),
+    INDEX idx_predictions_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS icu_beds (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    bed_number  VARCHAR(20) NOT NULL,
+    ward        VARCHAR(60) NOT NULL,
+    status      VARCHAR(20) NOT NULL,
+    created_at  DATETIME(6) NOT NULL,
+    updated_at  DATETIME(6) NOT NULL,
+    version     BIGINT      NOT NULL DEFAULT 0,
+    CONSTRAINT uk_icu_beds_number UNIQUE (bed_number),
+    CONSTRAINT ck_icu_beds_status CHECK (status IN ('AVAILABLE','OCCUPIED','MAINTENANCE')),
+    INDEX idx_icu_beds_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS icu_requests (
+    id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
+    admission_id          BIGINT       NOT NULL,
+    requested_by          BIGINT       NOT NULL,
+    heart_rate            INT          NOT NULL,
+    systolic_bp           INT          NOT NULL,
+    respiratory_rate      INT          NOT NULL,
+    spo2                  INT          NOT NULL,
+    temperature           DOUBLE       NOT NULL,
+    gcs                   INT          NOT NULL,
+    requires_ventilation  BOOLEAN      NOT NULL,
+    comorbidity_count     INT          NOT NULL,
+    clinical_notes        TEXT         NULL,
+    priority_level        VARCHAR(10)  NULL,
+    priority_score        DOUBLE       NULL,
+    class_probabilities   TEXT         NULL,
+    model_version         VARCHAR(50)  NULL,
+    scoring_status        VARCHAR(20)  NOT NULL,
+    status                VARCHAR(20)  NOT NULL,
+    bed_id                BIGINT       NULL,
+    decided_by            BIGINT       NULL,
+    decided_at            DATETIME(6)  NULL,
+    decision_notes        VARCHAR(500) NULL,
+    released_at           DATETIME(6)  NULL,
+    created_at            DATETIME(6)  NOT NULL,
+    updated_at            DATETIME(6)  NOT NULL,
+    version               BIGINT       NOT NULL DEFAULT 0,
+    open_admission_guard  BIGINT GENERATED ALWAYS AS (CASE WHEN status IN ('PENDING','ALLOCATED') THEN admission_id ELSE NULL END) STORED,
+    occupied_bed_guard    BIGINT GENERATED ALWAYS AS (CASE WHEN status = 'ALLOCATED' THEN bed_id ELSE NULL END) STORED,
+    CONSTRAINT uk_icu_requests_open_admission UNIQUE (open_admission_guard),
+    CONSTRAINT uk_icu_requests_occupied_bed UNIQUE (occupied_bed_guard),
+    CONSTRAINT ck_icu_requests_status CHECK (status IN ('PENDING','ALLOCATED','REJECTED','CANCELLED','RELEASED')),
+    CONSTRAINT ck_icu_requests_scoring CHECK (scoring_status IN ('SCORED','UNAVAILABLE')),
+    CONSTRAINT ck_icu_requests_priority CHECK (priority_level IS NULL OR priority_level IN ('LOW','MODERATE','HIGH','CRITICAL')),
+    CONSTRAINT ck_icu_requests_vitals CHECK (gcs BETWEEN 3 AND 15 AND spo2 BETWEEN 50 AND 100),
+    CONSTRAINT fk_icu_requests_admission FOREIGN KEY (admission_id) REFERENCES admissions (id),
+    CONSTRAINT fk_icu_requests_requested_by FOREIGN KEY (requested_by) REFERENCES users (id),
+    CONSTRAINT fk_icu_requests_bed FOREIGN KEY (bed_id) REFERENCES icu_beds (id),
+    CONSTRAINT fk_icu_requests_decided_by FOREIGN KEY (decided_by) REFERENCES users (id),
+    INDEX idx_icu_requests_status (status, priority_score),
+    INDEX idx_icu_requests_admission (admission_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    actor_id        BIGINT       NULL,
+    actor_username  VARCHAR(50)  NULL,
+    actor_role      VARCHAR(20)  NULL,
+    action          VARCHAR(50)  NOT NULL,
+    entity_type     VARCHAR(50)  NOT NULL,
+    entity_id       VARCHAR(50)  NULL,
+    details         TEXT         NULL,
+    reason          VARCHAR(500) NULL,
+    ip_address      VARCHAR(45)  NULL,
+    created_at      DATETIME(6)  NOT NULL,
+    CONSTRAINT fk_audit_actor FOREIGN KEY (actor_id) REFERENCES users (id),
+    INDEX idx_audit_created (created_at),
+    INDEX idx_audit_entity (entity_type, entity_id),
+    INDEX idx_audit_action (action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS system_settings (
+    setting_key    VARCHAR(80)  PRIMARY KEY,
+    setting_value  VARCHAR(255) NOT NULL,
+    updated_by     BIGINT       NULL,
+    updated_at     DATETIME(6)  NOT NULL,
+    CONSTRAINT fk_settings_user FOREIGN KEY (updated_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

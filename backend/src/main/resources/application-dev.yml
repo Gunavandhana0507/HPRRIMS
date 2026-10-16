@@ -1,0 +1,11 @@
+# Local development only. Never use these values in production.
+spring:
+  datasource:
+    username: ${DB_USERNAME:hprrims}
+    password: ${DB_PASSWORD:hprrims_pass}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789-abcdefghijklmnopqrstuvwxyz}
+  seed:
+    enabled: true

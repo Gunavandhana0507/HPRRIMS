@@ -1,0 +1,23 @@
+# Dependencies and builds
+node_modules/
+frontend/dist/
+backend/target/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local environment files (never commit secrets)
+.env
+.env.local
+*.env.local
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,51 @@
+{
+  "trained_at": "2026-10-15T13:15:43.088574+00:00",
+  "data": "synthetic (training/synthetic_data.py)",
+  "readmission": {
+    "version": "readmission-logreg-1.0.0",
+    "algorithm": "LogisticRegression (StandardScaler, class_weight=balanced)",
+    "features": [
+      "age",
+      "is_male",
+      "length_of_stay_days",
+      "prior_admissions_12m",
+      "prior_readmissions",
+      "medical_record_count",
+      "had_icu_stay",
+      "is_readmission",
+      "days_since_previous_discharge"
+    ],
+    "training_rows": 4800,
+    "metrics": {
+      "roc_auc": 0.7958,
+      "accuracy": 0.7358,
+      "positive_rate_train": 0.1206
+    }
+  },
+  "icu_priority": {
+    "version": "icu-priority-rf-1.0.0",
+    "algorithm": "RandomForestClassifier (200 trees, max_depth=10)",
+    "features": [
+      "age",
+      "heart_rate",
+      "systolic_bp",
+      "respiratory_rate",
+      "spo2",
+      "temperature",
+      "gcs",
+      "requires_ventilation",
+      "comorbidity_count"
+    ],
+    "classes": [
+      "LOW",
+      "MODERATE",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "training_rows": 4800,
+    "metrics": {
+      "accuracy": 0.8,
+      "macro_f1": 0.8064
+    }
+  }
+}
